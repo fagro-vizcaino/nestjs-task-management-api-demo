@@ -1,0 +1,52 @@
+import { Repository, EntityRepository } from "typeorm";
+import { User } from "./user.entity";
+import { AuthCredentialsDto } from "./dto/auth-credentials.dto";
+import { ConflictException, InternalServerErrorException } from "@nestjs/common";
+import * as bcrypt from 'bcryptjs';
+import { userInfo } from "os";
+
+@EntityRepository(User)
+export class UserRepository extends Repository<User> {
+
+    async signUp(authCredentialsDto: AuthCredentialsDto): Promise<void> {
+
+        const { username, password } = authCredentialsDto
+
+        const user = new User()
+        user.username = username
+        user.salt = await bcrypt.genSalt()
+        user.password = await this.hashPassword(password, user.salt)
+
+        try {
+            await user.save()
+        } catch (error) {
+            if (error.code === '23505') { //duplicate username, consider putting this on enum   
+                throw new ConflictException('Username already exists')
+            } else {
+                throw new InternalServerErrorException()
+            }
+        }
+    }
+
+    async validateUserPassword(authCredentialDto: AuthCredentialsDto): Promise<string> {
+        const { username, password } = authCredentialDto
+        const user = await this.findOne({ username })
+
+        if (user &&
+            await this.validatePassword(password, user)) {
+            return user.username
+        } else {
+            return null
+        }
+    }
+
+    private async validatePassword(password: string, user: User): Promise<boolean> {
+        const hash = await bcrypt.hash(password, user.salt)
+        return hash === user.password
+    }
+
+    private async hashPassword(password: string, salt: string): Promise<string> {
+        return bcrypt.hash(password, salt);
+    }
+
+}
